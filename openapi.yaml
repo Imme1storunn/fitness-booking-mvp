@@ -1,0 +1,535 @@
+openapi: 3.0.3
+info:
+  title: Fitness Booking API
+  version: 1.0.0
+  description: |
+    API системы онлайн-записи в фитнес-клуб (MVP).
+
+    * `/v1/*` — публичный API для мобильного приложения. Аутентификация — Bearer-токен внешнего сервиса аутентификации, из него извлекается `user_id` (FR-01).
+    * `/internal/v1/*` — служебный API для технических операций клуба (ADR-05). Аутентификация — сервисный токен.
+
+    Все даты и время передаются в UTC в формате ISO 8601. Отображение — в часовом поясе клуба (`Europe/Moscow`).
+    Описание принципов API, коды ошибок и примеры: docs/16-api.md. Требования: docs/07-functional-requirements.md.
+servers:
+  - url: https://api.fitness-club.example/
+    description: Production
+tags:
+  - name: Schedule
+    description: Расписание и карточка занятия
+  - name: Bookings
+    description: Запись и отмена
+  - name: Notifications
+    description: Лента уведомлений и устройства
+  - name: Club operations
+    description: Служебные операции клуба
+security:
+  - clientAuth: []
+
+paths:
+  /v1/schedule:
+    get:
+      tags: [Schedule]
+      summary: Расписание на день
+      description: |
+        Возвращает сеансы на дату в часовом поясе клуба (FR-04…FR-07).
+        Начавшиеся и отменённые сеансы не возвращаются. Занятые и недоступные персональные слоты скрыты, кроме забронированных текущим клиентом (FR-06).
+      operationId: getSchedule
+      parameters:
+        - name: date
+          in: query
+          required: true
+          description: Дата в диапазоне [сегодня; сегодня + 13 дней]
+          schema: { type: string, format: date, example: '2026-10-05' }
+        - name: type
+          in: query
+          schema: { $ref: '#/components/schemas/SessionType' }
+        - name: activity_type_id
+          in: query
+          schema: { type: string, format: uuid }
+        - name: trainer_id
+          in: query
+          schema: { type: string, format: uuid }
+        - name: level
+          in: query
+          schema: { $ref: '#/components/schemas/Level' }
+      responses:
+        '200':
+          description: Список сеансов, отсортированный по времени начала
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [date, sessions]
+                properties:
+                  date: { type: string, format: date }
+                  sessions:
+                    type: array
+                    items: { $ref: '#/components/schemas/SessionView' }
+        '400':
+          description: Дата вне горизонта записи (`OUT_OF_HORIZON`) или неверные параметры (`VALIDATION_ERROR`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  /v1/sessions/{sessionId}:
+    get:
+      tags: [Schedule]
+      summary: Карточка сеанса
+      operationId: getSession
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '200':
+          description: Сеанс
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SessionView' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  /v1/bookings:
+    post:
+      tags: [Bookings]
+      summary: Записаться на сеанс
+      description: |
+        Проверки выполняются в порядке FR-09: SESSION_NOT_FOUND → SESSION_CANCELLED → OUT_OF_HORIZON → BOOKING_CLOSED →
+        ALREADY_BOOKED → CLIENT_TIME_CONFLICT → TRAINER_BUSY (только персональные) → SESSION_FULL.
+        Место занимается атомарно (FR-10). Повтор с тем же `Idempotency-Key` в течение 24 ч возвращает исходный результат (FR-14).
+      operationId: createBooking
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          description: Уникальный ключ попытки записи, генерируется приложением (UUID)
+          schema: { type: string, maxLength: 64, example: '5b7c1f0e-2a51-4a8e-9d1c-0f3a7e2b9c11' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [session_id]
+              properties:
+                session_id: { type: string, format: uuid }
+      responses:
+        '201':
+          description: Запись создана (или возвращена по повтору с тем же ключом)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Booking' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404':
+          description: Сеанс не найден (`SESSION_NOT_FOUND`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '409':
+          description: Запись невозможна по бизнес-правилу
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              examples:
+                full:
+                  value: { code: SESSION_FULL, message: 'Мест нет — все места уже заняты' }
+                conflict:
+                  value:
+                    code: CLIENT_TIME_CONFLICT
+                    message: 'В это время у вас уже есть запись: Йога, 19:00'
+                    details: { conflicting_booking_id: '0c1e6f2a-7d0b-4c55-8a5e-1d2f3a4b5c6d' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  /v1/bookings/{bookingId}:
+    get:
+      tags: [Bookings]
+      summary: Карточка записи
+      operationId: getBooking
+      parameters:
+        - $ref: '#/components/parameters/BookingId'
+      responses:
+        '200':
+          description: Запись клиента
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Booking' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  /v1/bookings/{bookingId}/cancel:
+    post:
+      tags: [Bookings]
+      summary: Отменить запись
+      description: |
+        Отмена возможна не позже `start − 30 мин` для группового и `start − 24 ч` для персонального (FR-16).
+        При `free_cancel = true` — до начала сеанса (FR-17). Место возвращается атомарно (FR-18).
+        Повторная отмена уже отменённой клиентом записи возвращает текущее состояние (FR-19).
+      operationId: cancelBooking
+      parameters:
+        - $ref: '#/components/parameters/BookingId'
+      responses:
+        '200':
+          description: Запись отменена (или уже была отменена клиентом)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Booking' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: '`CANCELLATION_DEADLINE_PASSED` или `BOOKING_NOT_ACTIVE`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  /v1/me/bookings:
+    get:
+      tags: [Bookings]
+      summary: Мои записи
+      operationId: listMyBookings
+      parameters:
+        - name: scope
+          in: query
+          required: true
+          schema: { type: string, enum: [upcoming, history] }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Записи клиента. upcoming — ACTIVE по возрастанию времени, history — прочие статусы по убыванию
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/Booking' }
+                  next_cursor: { type: string, nullable: true }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  /v1/me/notifications:
+    get:
+      tags: [Notifications]
+      summary: Лента уведомлений
+      operationId: listNotifications
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Уведомления клиента, у которых наступило время отправки, по убыванию даты
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, unread_count]
+                properties:
+                  unread_count: { type: integer, minimum: 0 }
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/Notification' }
+                  next_cursor: { type: string, nullable: true }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  /v1/me/notifications/{notificationId}/read:
+    post:
+      tags: [Notifications]
+      summary: Отметить уведомление прочитанным
+      operationId: markNotificationRead
+      parameters:
+        - name: notificationId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '204': { description: Отмечено }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  /v1/me/devices:
+    post:
+      tags: [Notifications]
+      summary: Зарегистрировать устройство для push
+      description: Идемпотентно — повторная регистрация того же токена обновляет запись.
+      operationId: registerDevice
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [platform, push_token]
+              properties:
+                platform: { type: string, enum: [IOS, ANDROID] }
+                push_token: { type: string, maxLength: 512 }
+      responses:
+        '204': { description: Устройство зарегистрировано }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+  /internal/v1/sessions/{sessionId}/cancel:
+    post:
+      tags: [Club operations]
+      summary: Отменить сеанс (операция клуба)
+      description: |
+        В одной транзакции: сеанс → CANCELLED, все ACTIVE-записи → CANCELLED_BY_CLUB, booked_count = 0,
+        напоминания отменены, клиентам созданы уведомления (FR-22). Применимо к групповым и персональным сеансам.
+      operationId: cancelSession
+      security:
+        - serviceAuth: []
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason: { type: string, maxLength: 500, example: 'Болезнь тренера' }
+      responses:
+        '200':
+          description: Сеанс отменён
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [affected_bookings]
+                properties:
+                  affected_bookings: { type: integer, minimum: 0 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: Сеанс уже отменён или завершён (`SESSION_NOT_SCHEDULED`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /internal/v1/sessions/{sessionId}/trainer:
+    post:
+      tags: [Club operations]
+      summary: Заменить тренера группового сеанса (операция клуба)
+      description: |
+        Только для GROUP. Новый тренер должен быть свободен на интервале сеанса.
+        Активным записям ставится free_cancel = true, клиентам создаются уведомления TRAINER_CHANGED (FR-23).
+      operationId: replaceTrainer
+      security:
+        - serviceAuth: []
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [trainer_id]
+              properties:
+                trainer_id: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Тренер заменён
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [affected_bookings]
+                properties:
+                  affected_bookings: { type: integer, minimum: 0 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: '`REPLACEMENT_NOT_ALLOWED` (персональный сеанс), `TRAINER_BUSY`, `SESSION_NOT_SCHEDULED`'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+components:
+  securitySchemes:
+    clientAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Токен внешнего сервиса аутентификации (OIDC)
+    serviceAuth:
+      type: http
+      scheme: bearer
+      description: Сервисный токен для служебных операций
+
+  parameters:
+    SessionId:
+      name: sessionId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    BookingId:
+      name: bookingId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    Cursor:
+      name: cursor
+      in: query
+      schema: { type: string }
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+
+  responses:
+    BadRequest:
+      description: Неверные параметры запроса (`VALIDATION_ERROR`)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: Токен отсутствует, невалиден или просрочен (`UNAUTHORIZED`)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: |
+        Объект не найден или принадлежит другому клиенту (FR-03). Для чужой записи возвращается 404, а не 403,
+        чтобы API не подтверждал существование записи с таким id. Код `NOT_FOUND`
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    TooManyRequests:
+      description: Превышен лимит 30 запросов/мин на запись и отмену (`RATE_LIMITED`, NFR-12)
+      headers:
+        Retry-After:
+          schema: { type: integer }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    ServiceUnavailable:
+      description: Недоступен сервис аутентификации или БД (`SERVICE_UNAVAILABLE`, EC-30)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+
+  schemas:
+    SessionType:
+      type: string
+      enum: [GROUP, PERSONAL]
+    Level:
+      type: string
+      enum: [BEGINNER, INTERMEDIATE, ADVANCED, ALL]
+    BookingStatus:
+      type: string
+      enum: [ACTIVE, CANCELLED_BY_CLIENT, CANCELLED_BY_CLUB, COMPLETED]
+    BookingState:
+      type: string
+      description: Состояние записи на сеанс для текущего клиента (FR-05)
+      enum: [OPEN, FULL, CLOSED, BOOKED_BY_ME]
+
+    Trainer:
+      type: object
+      required: [id, full_name]
+      properties:
+        id: { type: string, format: uuid }
+        full_name: { type: string, example: 'Иванов Сергей' }
+
+    SessionView:
+      type: object
+      required: [id, type, activity, trainer, starts_at, ends_at, capacity, available_seats, status, booking_state]
+      properties:
+        id: { type: string, format: uuid }
+        type: { $ref: '#/components/schemas/SessionType' }
+        activity:
+          type: object
+          required: [id, name, level, duration_min]
+          properties:
+            id: { type: string, format: uuid }
+            name: { type: string, example: 'Йога' }
+            description: { type: string }
+            level: { $ref: '#/components/schemas/Level' }
+            duration_min: { type: integer, enum: [45, 60, 90] }
+        trainer: { $ref: '#/components/schemas/Trainer' }
+        hall:
+          type: object
+          nullable: true
+          properties:
+            id: { type: string, format: uuid }
+            name: { type: string, example: 'Зал 1' }
+        starts_at: { type: string, format: date-time }
+        ends_at: { type: string, format: date-time }
+        capacity: { type: integer, minimum: 1 }
+        available_seats: { type: integer, minimum: 0 }
+        status: { type: string, enum: [SCHEDULED, CANCELLED] }
+        booking_state: { $ref: '#/components/schemas/BookingState' }
+        my_booking_id: { type: string, format: uuid, nullable: true }
+        payment_note:
+          type: string
+          nullable: true
+          description: Для PERSONAL — «Стоимость и оплата — по договорённости с тренером»
+
+    Booking:
+      type: object
+      required: [id, session, status, free_cancel, cancel_deadline, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        session: { $ref: '#/components/schemas/SessionView' }
+        status: { $ref: '#/components/schemas/BookingStatus' }
+        free_cancel:
+          type: boolean
+          description: true после замены тренера группового занятия — отмена возможна до начала
+        cancel_deadline:
+          type: string
+          format: date-time
+          description: До какого момента можно отменить запись («Отменить можно до …»)
+        created_at: { type: string, format: date-time }
+        cancelled_at: { type: string, format: date-time, nullable: true }
+
+    Notification:
+      type: object
+      required: [id, type, title, body, created_at, is_read]
+      properties:
+        id: { type: string, format: uuid }
+        type: { type: string, enum: [BOOKING_CONFIRMED, BOOKING_CANCELLED, SESSION_CANCELLED, TRAINER_CHANGED, REMINDER] }
+        title: { type: string }
+        body: { type: string }
+        booking_id: { type: string, format: uuid, nullable: true }
+        created_at: { type: string, format: date-time }
+        is_read: { type: boolean }
+
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          enum:
+            - UNAUTHORIZED
+            - NOT_FOUND
+            - VALIDATION_ERROR
+            - SESSION_NOT_FOUND
+            - SESSION_CANCELLED
+            - OUT_OF_HORIZON
+            - BOOKING_CLOSED
+            - ALREADY_BOOKED
+            - CLIENT_TIME_CONFLICT
+            - TRAINER_BUSY
+            - SESSION_FULL
+            - CANCELLATION_DEADLINE_PASSED
+            - BOOKING_NOT_ACTIVE
+            - SESSION_NOT_SCHEDULED
+            - REPLACEMENT_NOT_ALLOWED
+            - RATE_LIMITED
+            - SERVICE_UNAVAILABLE
+        message:
+          type: string
+          description: Текст для показа клиенту (docs/06-user-requirements.md, таблица 6.5)
+        details:
+          type: object
+          additionalProperties: true

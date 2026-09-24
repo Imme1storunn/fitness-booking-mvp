@@ -4,6 +4,8 @@
 
 ## 13.1. Диаграмма
 
+![Модель данных (ER)](/er-diagram.png)
+
 ```mermaid
 %%{init: {'theme':'base','themeVariables':{'primaryColor':'#EFF6FF','primaryBorderColor':'#2563EB','primaryTextColor':'#0F172A','lineColor':'#475569','secondaryColor':'#F8FAFC','tertiaryColor':'#FFFFFF','fontFamily':'Inter, Segoe UI, Arial, sans-serif','fontSize':'14px'}}}%%
 erDiagram

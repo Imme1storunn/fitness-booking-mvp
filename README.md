@@ -26,25 +26,25 @@
 | # | Раздел | Статус |
 |---|---|---|
 | 00 | [Исходное задание](/00-task.md) | ✅ |
-| 01 | [Бизнес-контекст и бизнес-цели](docs/01-business-goal.md) | ✅ |
-| 02 | [Заинтересованные стороны](docs/02-stakeholders.md) | ✅ |
-| 03 | [Процессы AS-IS и TO-BE](docs/03-as-is-to-be.md) | ✅ |
-| 04 | [Границы проекта](docs/04-scope.md) | ✅ |
-| 05 | [Бизнес-требования](docs/05-business-requirements.md) | ✅ |
-| 06 | [Пользовательские требования](docs/06-user-requirements.md) | ✅ |
-| 07 | [Функциональные требования](docs/07-functional-requirements.md) | ✅ |
-| 08 | [Нефункциональные требования](docs/08-non-functional-requirements.md) | ✅ |
-| 09 | [Ограничения, допущения, краевые кейсы](docs/09-constraints-assumptions-edge-cases.md) | ✅ |
-| 10 | [Юзкейсы](docs/10-use-cases.md) | ✅ |
-| 11 | [Юзер-стори](docs/11-user-stories.md) | ✅ |
-| 12 | [Архитектура C4](docs/12-c4.md) | ✅ |
-| 13 | [ER-модель](docs/13-er-model.md) | ✅ |
-| 14 | [Диаграмма состояний записи](docs/14-booking-state-diagram.md) | ✅ |
-| 15 | [Диаграммы последовательности](docs/15-sequence-diagrams.md) | ✅ |
-| 16 | [API и OpenAPI-спецификация](docs/16-api.md) | ✅ |
-| 17 | [Матрица трассировки](docs/17-traceability-matrix.md) | ✅ |
-| 18 | [Этапы развития](docs/18-roadmap.md) | ✅ |
-| 19 | [Глоссарий](docs/19-glossary.md) | ✅ |
+| 01 | [Бизнес-контекст и бизнес-цели](/01-business-goal.md) | ✅ |
+| 02 | [Заинтересованные стороны](/02-stakeholders.md) | ✅ |
+| 03 | [Процессы AS-IS и TO-BE](/03-as-is-to-be.md) | ✅ |
+| 04 | [Границы проекта](/04-scope.md) | ✅ |
+| 05 | [Бизнес-требования](/05-business-requirements.md) | ✅ |
+| 06 | [Пользовательские требования](/06-user-requirements.md) | ✅ |
+| 07 | [Функциональные требования](/07-functional-requirements.md) | ✅ |
+| 08 | [Нефункциональные требования](/08-non-functional-requirements.md) | ✅ |
+| 09 | [Ограничения, допущения, краевые кейсы](/09-constraints-assumptions-edge-cases.md) | ✅ |
+| 10 | [Юзкейсы](/10-use-cases.md) | ✅ |
+| 11 | [Юзер-стори](/11-user-stories.md) | ✅ |
+| 12 | [Архитектура C4](/12-c4.md) | ✅ |
+| 13 | [ER-модель](/13-er-model.md) | ✅ |
+| 14 | [Диаграмма состояний записи](/14-booking-state-diagram.md) | ✅ |
+| 15 | [Диаграммы последовательности](/15-sequence-diagrams.md) | ✅ |
+| 16 | [API и OpenAPI-спецификация](/16-api.md) | ✅ |
+| 17 | [Матрица трассировки](/17-traceability-matrix.md) | ✅ |
+| 18 | [Этапы развития](/18-roadmap.md) | ✅ |
+| 19 | [Глоссарий](/19-glossary.md) | ✅ |
 
 ## Ключевые решения
 

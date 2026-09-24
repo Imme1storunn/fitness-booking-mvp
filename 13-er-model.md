@@ -7,13 +7,13 @@
 ```mermaid
 %%{init: {'theme':'base','themeVariables':{'primaryColor':'#EFF6FF','primaryBorderColor':'#2563EB','primaryTextColor':'#0F172A','lineColor':'#475569','secondaryColor':'#F8FAFC','tertiaryColor':'#FFFFFF','fontFamily':'Inter, Segoe UI, Arial, sans-serif','fontSize':'14px'}}}%%
 erDiagram
-    HALL |o--o{ SESSION
-    TRAINER ||--o{ SESSION
-    ACTIVITY_TYPE ||--o{ SESSION
-    SESSION ||--o{ BOOKING
-    BOOKING ||--|{ BOOKING_STATUS_HISTORY
-    BOOKING |o--o{ NOTIFICATION
-    SESSION ||--o{ BOOKING_REJECTION
+    HALL |o--o{ SESSION : ""
+    TRAINER ||--o{ SESSION : ""
+    ACTIVITY_TYPE ||--o{ SESSION : ""
+    SESSION ||--o{ BOOKING : "записи"
+    BOOKING ||--|{ BOOKING_STATUS_HISTORY : ""
+    BOOKING |o--o{ NOTIFICATION : ""
+    SESSION ||--o{ BOOKING_REJECTION : ""
 
     HALL {
         uuid id PK
